@@ -34,36 +34,36 @@ class Treatment(Model):
 
         if loss in ["MSE", "mse", "mean_squared_error"]:
             output += samplers.random_normal(K.shape(output), mean=0.0, std=1.0)
-            draw_sample = K.function(inputs + [K.learning_phase()], [output])
+            draw_sample = K.function(inputs, [output])
 
-            def sample_gaussian(inputs, use_dropout=False):
+            def sample_gaussian(inputs):
                 '''
                 Helper to draw samples from a gaussian distribution
                 '''
-                return draw_sample(inputs + [int(use_dropout)])[0]
+                return draw_sample(inputs)[0]
 
             return sample_gaussian
 
         elif loss == "binary_crossentropy":
             output = K.random_binomial(K.shape(output), p=output)
-            draw_sample = K.function(inputs + [K.learning_phase()], [output])
+            draw_sample = K.function(inputs, [output])
 
-            def sample_binomial(inputs, use_dropout=False):
+            def sample_binomial(inputs):
                 '''
                 Helper to draw samples from a binomial distribution
                 '''
-                return draw_sample(inputs + [int(use_dropout)])[0]
+                return draw_sample(inputs)[0]
 
             return sample_binomial
 
         elif loss in ["mean_absolute_error", "mae", "MAE"]:
             output += samplers.random_laplace(K.shape(output), mu=0.0, b=1.0)
-            draw_sample = K.function(inputs + [K.learning_phase()], [output])
-            def sample_laplace(inputs, use_dropout=False):
+            draw_sample = K.function(inputs, [output])
+            def sample_laplace(inputs):
                 '''
                 Helper to draw samples from a Laplacian distribution
                 '''
-                return draw_sample(inputs + [int(use_dropout)])[0]
+                return draw_sample(inputs)[0]
 
             return sample_laplace
 
@@ -71,7 +71,7 @@ class Treatment(Model):
             pi, mu, log_sig = densities.split_mixture_of_gaussians(output, self.n_components)
             samples = samplers.random_gmm(pi, mu, K.exp(log_sig))
             draw_sample = K.function(inputs, [samples])
-            return lambda inputs, use_dropout: draw_sample(inputs + [int(use_dropout)])[0]
+            return lambda inputs: draw_sample(inputs)[0]
 
         else:
             raise NotImplementedError("Unrecognised loss: %s.\
@@ -122,7 +122,7 @@ class Treatment(Model):
         super(Treatment, self).compile(optimizer, loss, metrics=metrics, loss_weights=loss_weights,
                                        sample_weight_mode=sample_weight_mode, **kwargs)
 
-    def sample(self, inputs, n_samples=1, use_dropout=False):
+    def sample(self, inputs, n_samples=1):
         '''
         Draw samples from the keras model.
         '''
@@ -130,7 +130,7 @@ class Treatment(Model):
             if not isinstance(inputs, list):
                 inputs = [inputs]
             inputs = [i.repeat(n_samples, axis=0) for i in inputs]
-            return self._sampler(inputs, use_dropout)
+            return self._sampler(inputs)
         else:
             raise Exception("Compile model with loss before sampling")
 
@@ -147,13 +147,13 @@ class Response(Model):
     distriubtion during training.
     '''
     def __init__(self, treatment, **kwargs):
+        super(Response, self).__init__(**kwargs)
         if isinstance(treatment, Treatment):
             self.treatment = treatment
         else:
             raise TypeError("Expected a treatment model of type Treatment. \
                              Got a model of type %s. Remember to train your\
                              treatment model first." % type(treatment))
-        super(Response, self).__init__(**kwargs)
 
     def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
                 unbiased_gradient=False,n_samples=1, batch_size=None):
@@ -197,11 +197,12 @@ class Response(Model):
                                          self.treatment.sample, samples_per_batch)
         
         steps_per_epoch = y.shape[0]  // batch_size
-        super(Response, self).fit_generator(generator=generator,
-                                            steps_per_epoch=steps_per_epoch,
-                                            epochs=epochs, verbose=verbose,
-                                            callbacks=callbacks, validation_data=validation_data,
-                                            class_weight=class_weight, initial_epoch=initial_epoch)
+        super(Response, self).fit(
+                generator,
+                steps_per_epoch=steps_per_epoch,
+                epochs=epochs, verbose=verbose,
+                callbacks=callbacks, validation_data=validation_data,
+                class_weight=class_weight, initial_epoch=initial_epoch)
 
     def fit_generator(self, **kwargs):
         '''
@@ -248,84 +249,6 @@ class Response(Model):
             return self._c_representation(inputs)
         else:
             return self._c_representation(inputs)
-
-    def dropout_predict(self, x, z, n_samples=100):
-        if isinstance(x, list):
-            inputs = [z] + x
-        else:
-            inputs = [z, x]
-        if not hasattr(self, "_dropout_predict"):
-            
-            predict_with_dropout = K.function(self.inputs + [K.learning_phase()],
-                                              [self.layers[-1].output])
-
-            def pred(inputs, n_samples = 100):
-                # draw samples from the treatment network with dropout turned on
-                samples = self.treatment.sample(inputs, n_samples, use_dropout=True)
-                # prepare inputs for the response network
-                rep_inputs = [i.repeat(n_samples, axis=0) for i in inputs[1:]] + [samples]
-                # return outputs from the response network with dropout turned on (learning_phase=0)
-                return predict_with_dropout(rep_inputs + [1])[0]
-            self._dropout_predict = pred
-            return self._dropout_predict(inputs, n_samples)
-        else:
-            return self._dropout_predict(inputs, n_samples)
-
-    def credible_interval(self, x, z, n_samples=100, p=0.95):
-        '''
-        Return a credible interval of size p using dropout variational inference.
-        '''
-        if isinstance(x, list):
-            n = x[0].shape[0]
-        else:
-            n = x.shape[0]
-        alpha = (1-p) / 2.
-        samples = self.dropout_predict(x, z, n_samples).reshape((n, n_samples, -1))
-        upper = numpy.percentile(samples.copy(), 100*(p+alpha), axis=1)
-        lower = numpy.percentile(samples.copy(), 100*(alpha), axis=1)
-        return lower, upper
-
-    def _add_constant(self, X):
-        return numpy.concatenate((numpy.ones((X.shape[0], 1)), X), axis=1)
-    
-    def predict_confidence(self, x, p):
-        if hasattr(self, "_predict_confidence"):
-            return self._predict_confidence(x, p)
-        else:
-            raise Exception("Call fit_confidence_interval before running predict_confidence")
-
-    
-    def fit_confidence_interval(self, x_lo, z_lo, p_lo, y_lo, n_samples=100, alpha=0.):
-        eta_bar = self.expected_representation(x=x_lo, z=z_lo, n_samples=n_samples)
-        pca = PCA(1-1e-16, svd_solver="full", whiten=True)
-        pca.fit(eta_bar)
-
-        eta_bar = pca.transform(eta_bar)
-        eta_lo_prime = pca.transform(self.conditional_representation(x_lo, p_lo))
-        eta_lo = self._add_constant(eta_lo_prime)
-
-        ols1 = linear_model.Ridge(alpha=alpha, fit_intercept=True)
-        ols1.fit(eta_bar, eta_lo_prime)
-        hhat = ols1.predict(eta_bar)
-        ols2 = linear_model.Ridge(alpha=alpha, fit_intercept=False)
-        ols2.fit(self._add_constant(hhat), y_lo)
-
-        yhat = ols2.predict(eta_lo)
-        hhi = numpy.linalg.inv(numpy.dot(eta_lo.T, eta_lo))
-
-        heh = numpy.dot(eta_lo.T, numpy.square(y_lo - yhat) * eta_lo)
-        V = numpy.dot(numpy.dot(hhi, heh), hhi)
-
-        def pred(xx, pp):
-            H = self._add_constant(pca.transform(self.conditional_representation(xx,pp)))
-            sdhb = numpy.sqrt(numpy.diag(numpy.dot(numpy.dot(H, V), H.T)))
-            hb = ols2.predict(H).flatten()
-            return hb, sdhb
-        
-        self._predict_confidence = pred
-
-
-
 
 class SampledSequence(keras.utils.Sequence):
     def __init__(self, features, instruments, outputs, batch_size, sampler, n_samples=1, seed=None):

@@ -15,12 +15,16 @@ import numpy
 
 import data_generator
 
+smoke_test = False
+
 n = 5000
 dropout_rate = min(1000./(1000. + n), 0.5)
 epochs = int(1500000./float(n)) # heuristic to select number of epochs
-epochs = 300
+epochs = 300 
 batch_size = 100
 images = False
+
+epochs = 1 if smoke_test else epochs
 
 def datafunction(n, s, images=images, test=False):
     return data_generator.demand(n=n, seed=s, ypcor=0.5, use_images=images, test=test)
