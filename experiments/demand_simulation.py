@@ -8,9 +8,8 @@ import deepiv.densities as densities
 
 import tensorflow as tf
 
-from keras.layers import Input, Dense
+from keras.layers import Input, Dense, Concatenate
 from keras.models import Model
-from keras.layers.merge import Concatenate
 
 import numpy
 

@@ -11,11 +11,6 @@ from deepiv.custom_gradients import replace_gradients_mse
 from keras.models import Model
 from keras import backend as K
 from keras.layers import Lambda, InputLayer
-from keras.engine import topology
-try:
-    import h5py
-except ImportError:
-    h5py = None
 
 
 import keras.utils
@@ -75,7 +70,7 @@ class Treatment(Model):
         elif loss == "mixture_of_gaussians":
             pi, mu, log_sig = densities.split_mixture_of_gaussians(output, self.n_components)
             samples = samplers.random_gmm(pi, mu, K.exp(log_sig))
-            draw_sample = K.function(inputs + [K.learning_phase()], [samples])
+            draw_sample = K.function(inputs, [samples])
             return lambda inputs, use_dropout: draw_sample(inputs + [int(use_dropout)])[0]
 
         else:
@@ -411,13 +406,4 @@ class OnesidedUnbaised(SampledSequence):
             self.shuffle()
         return batch_features, batch_y
 
-def load_weights(filepath, model):
-    if h5py is None:
-        raise ImportError('`load_weights` requires h5py.')
-
-    with h5py.File(filepath, mode='r') as f:
-        # set weights
-        topology.load_weights_from_hdf5_group(f['model_weights'], model.layers)
-
-    return model
 

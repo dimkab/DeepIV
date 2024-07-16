@@ -65,7 +65,7 @@ def get_images(digit, n, seed=None, testset=False):
 
 def one_hot(col, **kwargs):
     z = col.reshape(-1,1)
-    enc = OneHotEncoder(sparse=False, **kwargs)
+    enc = OneHotEncoder(sparse_output=False, **kwargs)
     return enc.fit_transform(z)
 
 def get_test_valid_train(generator, n, batch_size=128, seed=123, **kwargs):
@@ -102,7 +102,7 @@ def demand(n, seed=1, ynoise=1., pnoise=1., ypcor=0.8, use_images=False, test=Fa
     # covariates: time and emotion
     time = rng.rand(n) * 10
     emotion_id = rng.randint(0, 7, size=n)
-    emotion = one_hot(emotion_id, n_values=7)
+    emotion = one_hot(emotion_id, max_categories=7)
     if use_images:
         idx = np.argsort(emotion_id)
         emotion_feature = np.zeros((0, 28*28))

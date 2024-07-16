@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import numpy
 from keras import backend as K
-from keras.engine.topology import InputLayer
+# from keras.engine.topology import InputLayer
 
 if K.backend() == "theano":
     from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -32,8 +32,9 @@ def random_multinomial(logits, seed=None):
         rng = RandomStreams(seed=seed)
         return rng.multinomial(n=1, pvals=logits, ndim=None, dtype=_FLOATX)
     elif K.backend() == "tensorflow":
-        return tf.one_hot(tf.squeeze(tf.multinomial(K.log(logits), num_samples=1)),
-                          int(logits.shape[1]))
+        category = tf.random.categorical(K.log(logits), num_samples=1)
+        category = category[0] # remove the batch dimension
+        return tf.one_hot(category,int(logits.shape[1]))
 
 def random_gmm(pi, mu, sig):
     '''

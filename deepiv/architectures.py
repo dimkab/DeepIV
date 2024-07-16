@@ -6,8 +6,7 @@ from keras.layers import (Convolution2D, Dense, Dropout, Flatten,
                           MaxPooling2D)
 from keras.models import Sequential
 from keras.regularizers import l2
-from keras.constraints import maxnorm
-from keras.utils import np_utils
+from keras.constraints import max_norm
 
 import numpy as np
 
@@ -32,7 +31,7 @@ def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
             w_reg = keras.regularizers.l2(l2)
         else:
             w_reg = None
-        const = maxnorm(2) if constrain_norm else  None
+        const = max_norm(2) if constrain_norm else  None
         state = Dense(h, activation=a, kernel_regularizer=w_reg, kernel_constraint=const)(state)
         if dropout_rate > 0.:
             state = Dropout(dropout_rate)(state)
